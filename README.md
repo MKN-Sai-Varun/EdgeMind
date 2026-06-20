@@ -27,11 +27,11 @@ Cloudflare Workers (Edge)
 
 ## Live API
 
-**Base URL:** `https://edgemind.your-subdomain.workers.dev`
+**Base URL:** `https://edgemind.mknsvarun.workers.dev`
 
 ### Health Check
 ```bash
-curl https://edgemind.your-subdomain.workers.dev/health
+curl https://edgemind.mknsvarun.workers.dev/health
 ```
 ```json
 { "status": "ok", "region": "SIN" }
@@ -39,7 +39,7 @@ curl https://edgemind.your-subdomain.workers.dev/health
 
 ### Query
 ```bash
-curl -X POST https://edgemind.your-subdomain.workers.dev/query \
+curl -X POST https://edgemind.mknsvarun.workers.dev/query \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Explain DNS in one sentence"}'
 ```
@@ -53,7 +53,7 @@ curl -X POST https://edgemind.your-subdomain.workers.dev/query \
 
 ### Cache Hit (same prompt again)
 ```bash
-curl -X POST https://edgemind.your-subdomain.workers.dev/query \
+curl -X POST https://edgemind.mknsvarun.workers.dev/query \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Explain DNS in one sentence"}'
 ```
@@ -67,7 +67,7 @@ curl -X POST https://edgemind.your-subdomain.workers.dev/query \
 
 ### Force Groq (70B model)
 ```bash
-curl -X POST https://edgemind.your-subdomain.workers.dev/query \
+curl -X POST https://edgemind.mknsvarun.workers.dev/query \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Write a detailed essay on BGP", "force_groq": true}'
 ```
