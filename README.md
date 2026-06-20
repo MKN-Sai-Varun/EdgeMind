@@ -1,22 +1,22 @@
 # EdgeMind — AI Query Router on Cloudflare Workers
 
-> A serverless AI gateway deployed at the edge. Routes prompts to Workers AI (LLaMA) or Groq based on token budget, with KV-based semantic caching for sub-millisecond repeat lookups.
+> A serverless AI gateway deployed at the edge. Routes prompts to Cloudflare Workers AI or Groq based on request complexity, with Cloudflare KV caching that reduces repeated query latency from **2.1 seconds to 44 milliseconds (~48× improvement)**.
 
 ## Architecture
 
-```
+```text
 Client Request
       │
       ▼
 Cloudflare Workers (Edge)
       │
-      ├─► KV Cache Check ──► HIT → return cached response (~2ms)
+      ├─► KV Cache Check ──► HIT → Return Cached Response (~44ms)
       │
       └─► MISS → Route Decision
                 │
-                ├─► Workers AI (LLaMA 3.8B) — short prompts / low token budget
+                ├─► Workers AI (LLaMA 3.8B)
                 │
-                └─► Groq (LLaMA 3.3 70B)   — long prompts / force_groq flag / fallback
+                └─► Groq (LLaMA 3.3 70B)
                           │
                           ▼
                     Store in KV Cache (TTL: 1hr)
@@ -27,111 +27,173 @@ Cloudflare Workers (Edge)
 
 ## Live API
 
-**Base URL:** `https://edgemind.mknsvarun.workers.dev`
+**Base URL**
+
+```text
+https://edgemind.mknsvarun.workers.dev
+```
 
 ### Health Check
+
 ```bash
 curl https://edgemind.mknsvarun.workers.dev/health
 ```
+
+Example Response:
+
 ```json
-{ "status": "ok", "region": "SIN" }
+{
+  "status": "ok",
+  "region": "SIN"
+}
 ```
 
 ### Query
+
 ```bash
 curl -X POST https://edgemind.mknsvarun.workers.dev/query \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain DNS in one sentence"}'
+  -d '{"prompt":"Explain DNS in one sentence"}'
 ```
+
+Example Response:
+
 ```json
 {
-  "response": "DNS is a distributed system that translates human-readable domain names into IP addresses...",
+  "response": "DNS translates human-readable domain names into IP addresses.",
   "source": "workers_ai",
   "latency_ms": 834
 }
 ```
 
-### Cache Hit (same prompt again)
+### Cache Hit
+
+Submitting the same prompt again:
+
 ```bash
 curl -X POST https://edgemind.mknsvarun.workers.dev/query \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain DNS in one sentence"}'
+  -d '{"prompt":"Explain DNS in one sentence"}'
 ```
+
+Example Response:
+
 ```json
 {
-  "response": "DNS is a distributed system...",
+  "response": "DNS translates human-readable domain names into IP addresses.",
   "source": "cache",
-  "latency_ms": 3
+  "latency_ms": 44
 }
 ```
 
-### Force Groq (70B model)
+### Force Groq
+
 ```bash
 curl -X POST https://edgemind.mknsvarun.workers.dev/query \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Write a detailed essay on BGP", "force_groq": true}'
+  -d '{"prompt":"Write a detailed essay on BGP","force_groq":true}'
 ```
 
-## Latency Benchmarks
+## Real Benchmark Results
 
-| Source | Avg Latency | Notes |
-|--------|-------------|-------|
-| Cache (KV hit) | ~2–5ms | Edge KV lookup |
-| Workers AI | ~700–900ms | LLaMA 3.8B at edge |
-| Groq | ~1000–1400ms | LLaMA 3.3 70B |
+Measured on the deployed production endpoint:
+
+| Request Type      | Latency     |
+| ----------------- | ----------- |
+| Cache Miss        | 2113 ms     |
+| Cache Hit         | 44 ms       |
+| Improvement       | ~48× Faster |
+| Latency Reduction | 97.9%       |
+
+Benchmark command:
+
+```bash
+time curl -X POST https://edgemind.mknsvarun.workers.dev/query \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"What is BGP?"}'
+```
+
+Results:
+
+```text
+First Request  (Cache Miss): 2113 ms
+Second Request (Cache Hit):    44 ms
+```
 
 ## API Reference
 
-### `POST /query`
+### POST /query
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `prompt` | string | required | The input prompt |
-| `max_tokens` | number | 256 | Tokens > 500 auto-routes to Groq |
-| `force_groq` | boolean | false | Skip Workers AI, use Groq 70B |
+| Field      | Type    | Default  | Description            |
+| ---------- | ------- | -------- | ---------------------- |
+| prompt     | string  | required | User query             |
+| max_tokens | number  | 256      | Token budget           |
+| force_groq | boolean | false    | Route directly to Groq |
 
-### `GET /health`
-Returns `{ status, region }` — region is the Cloudflare colo serving the request.
+### GET /health
 
-### `DELETE /cache?prompt=...`
-Clears a cached response for a given prompt.
+Returns:
+
+```json
+{
+  "status": "ok",
+  "region": "SIN"
+}
+```
+
+### DELETE /cache
+
+```http
+DELETE /cache?prompt=<query>
+```
+
+Removes a cached response.
 
 ## Routing Logic
 
-```
-if force_groq OR max_tokens > 500:
-    → Groq (LLaMA 3.3 70B)
+```python
+if force_groq or max_tokens > 500:
+    route_to_groq()
 else:
-    → Workers AI (LLaMA 3.8B)
-    → on failure: fallback to Groq
+    route_to_workers_ai()
+
+if workers_ai_fails:
+    route_to_groq()
 ```
 
 ## Local Development
 
 ```bash
-git clone https://github.com/MKN-Sai-Varun/EdgeMind
-cd edgemind
+git clone https://github.com/MKN-Sai-Varun/EdgeMind.git
+
+cd EdgeMind
+
 npm install
 
-# Add your Groq key
 npx wrangler secret put GROQ_API_KEY
 
-# Run locally
 npx wrangler dev
 
-# Deploy
 npx wrangler deploy
 ```
 
-## Stack
+## Tech Stack
 
-- **Runtime:** Cloudflare Workers (V8 isolates)
-- **Router:** Hono
-- **Primary LLM:** Cloudflare Workers AI — `@cf/meta/llama-3-8b-instruct`
-- **Fallback LLM:** Groq — `llama-3.3-70b-versatile`
-- **Cache:** Cloudflare KV (TTL: 1 hour)
-- **Language:** TypeScript
+* Runtime: Cloudflare Workers
+* Framework: Hono
+* Primary Model: @cf/meta/llama-3-8b-instruct
+* Fallback Model: Groq llama-3.3-70b-versatile
+* Cache Layer: Cloudflare KV
+* Language: TypeScript
 
-## Why This Exists
+## Key Achievements
 
-Standard LLM APIs add 500ms–2s of latency on every call. By deploying the router at Cloudflare's edge and caching responses in KV, repeated or similar queries resolve in single-digit milliseconds — without hitting the model at all. The dual-model routing also lets you balance cost and quality per request.
+* Built a globally distributed edge AI gateway using Cloudflare Workers.
+* Implemented intelligent model routing between Workers AI and Groq.
+* Reduced repeated query latency from **2.1s to 44ms** using KV caching.
+* Achieved **97.9% latency reduction** and **48× faster responses** for cached requests.
+* Eliminated unnecessary LLM inference for repeated queries, reducing response cost and improving user experience.
+
+## Why EdgeMind?
+
+Traditional LLM applications perform full inference on every request, introducing significant latency and cost. EdgeMind moves AI inference closer to users through Cloudflare's edge network and aggressively caches responses, allowing repeat queries to be served in tens of milliseconds instead of seconds.
